@@ -25,7 +25,7 @@ kernel_library="https://github.com/ophub/flippy-kernel/tree/main/library"
 
 # Set firmware size ( BOOT_MB size >= 128, ROOT_MB size >= 320 )
 BOOT_MB=256
-ROOT_MB=1024
+ROOT_MB=960
 
 tag() {
     echo -e " [ \033[1;32m ${1} \033[0m ]"
@@ -264,6 +264,7 @@ EOF
 
     # Turn off hw_flow by default
     [ -f etc/config/turboacc ] && sed -i "s|option hw_flow.*|option hw_flow '0'|g" etc/config/turboacc
+    [ -f etc/config/turboacc ] && sed -i "s|option sfe_flow.*|option sfe_flow '0'|g" etc/config/turboacc
 
     # Add drivers
     [ -f etc/modules.d/8189fs ] || echo "8189fs" > etc/modules.d/8189fs
@@ -312,11 +313,15 @@ EOF
         op_version=$(echo $(ls lib/modules/ 2>/dev/null ))
         op_packaged_date=$(date +%Y-%m-%d)
         echo " Install: OpenWrt → System → Amlogic Service → Install" >> etc/banner
+        echo " Update: OpenWrt → System → Amlogic Service → Update" >> etc/banner
         echo " Amlogic SoC: ${build_op}" >> etc/banner
         echo " OpenWrt Kernel: ${op_version}" >> etc/banner
         echo " Packaged Date: ${op_packaged_date}" >> etc/banner
         echo " -----------------------------------------------------" >> etc/banner
     fi
+
+    # Add some package and script connection
+    ln -sf /usr/sbin/openwrt-backup usr/sbin/flippy 2>/dev/null
 
     sync
     # Edit ${root}/* files ========== End ==========
@@ -363,7 +368,7 @@ make_image() {
     IMG_SIZE=$((SKIP_MB + BOOT_MB + rootsize))
 
     #fallocate -l ${IMG_SIZE}M ${build_image_file}
-    dd if=/dev/zero of=${build_image_file} bs=1M count=${IMG_SIZE} 2>/dev/null
+    dd if=/dev/zero of=${build_image_file} bs=1M count=${IMG_SIZE} 2>/dev/null && sync
 
     parted -s ${build_image_file} mklabel msdos 2>/dev/null
     parted -s ${build_image_file} mkpart primary fat32 $((SKIP_MB))M $((SKIP_MB + BOOT_MB -1))M 2>/dev/null
@@ -373,6 +378,7 @@ make_image() {
     loop_setup ${build_image_file}
     mkfs.vfat -n "BOOT" ${loop}p1 >/dev/null 2>&1
     mkfs.btrfs -U ${ROOTFS_UUID} -L "ROOTFS" -m single ${loop}p2 >/dev/null 2>&1
+    sync
 
     # Write the specified bootloader
     if  [[ "${MAINLINE_UBOOT}" != "" && -f "${root}${MAINLINE_UBOOT}" ]]; then
@@ -384,6 +390,7 @@ make_image() {
         dd if=${root}${ANDROID_UBOOT} of=${loop} bs=512 skip=1 seek=1 conv=fsync 2>/dev/null
         #echo -e "${build_op}_v${kernel} write Android bootloader: ${ANDROID_UBOOT}"
     fi
+    sync
 }
 
 copy2image() {
@@ -395,7 +402,7 @@ copy2image() {
     local bootfs="${mount}/${kernel}/${build_op}/bootfs"
     local rootfs="${mount}/${kernel}/${build_op}/rootfs"
 
-    mkdir -p ${bootfs} ${rootfs}
+    mkdir -p ${bootfs} ${rootfs} && sync
     if ! mount ${loop}p1 ${bootfs}; then
         die "mount ${loop}p1 failed!"
     fi
